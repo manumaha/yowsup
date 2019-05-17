@@ -1,0 +1,275 @@
+Yowsup integration with Nagios 
+
+ 
+
+Hi People,
+
+I was finally able to successfully integrate yowsup with Nagios 4.4.3 version on Ubuntu 18.04
+
+Here is how it goes.
+
+First step to do is to install all dependencies using this command as root user: 
+
+apt-get install python python-dateutil python-argparse python-dev python-setuptools  
+
+Then download WhatsAPI Yowsup hosted on Github 
+
+https://github.com/tgalal/yowsup.git 
+
+Then install pip. It is a python modules installer program.  
+
+sudo apt install python-pip 
+
+cd yowsup/ 
+
+chmod +x setup.py 
+
+pip install yowsup  (this will install all required dependancies for yowsup liabraries) 
+
+python setup.py install  (This is a actual installation of yowsup program that we have downloaded earlier) 
+
+mv /root/yowsup /urs/loca/nagios/libexec/ 
+
+chown –R nagios:nagios /usr/local/nagios 
+
+mkdir –p /home/nagios  (Create this directory if not exists) 
+
+chown –R nagios:nagios /home/nagios 
+
+cd /usr/local/nagios/libexec/yowsup/ 
+
+Now we are going to register our mobile number for WhatsApp services and request an One Time Password for registration. 
+
+./yowsup-cli registration --requestcode sms --phone 9190xxxxxxxx --cc 91 --mcc 405 --mnc 15 -E android 
+
+--phone = phone number starting with country code 
+
+--cc = Country Code 
+
+--mcc = MCC Mobile Country Code. Check your mcc here: https://en.wikipedia.org/wiki/Mobile_country_code 
+
+--mnc = MNC Mobile Network Code. Check your mnc from https://en.wikipedia.org/wiki/Mobile_country_code 
+
+On receiving the OTP (one time password) we need to issue another command to complete the registration process. 
+
+./yowsup-cli registration --register 735-186 --phone 9190xxxxxxxx --cc 91 -E android 
+
+Yow should get output like this : 
+
+INFO:yowsup.common.http.warequest:{"status":"ok","login":"xxxxxxxxxxxxxxx","pw":"0pJj5cLaGSk6pDTa6rJR/5bDiR0=","type":"new","expiration":1471273284,"kind":"free","price":"0,89 \u20ac","cost":"0.89","currency":"EUR","price_expiration":1442376976}status: okkind: freepw: 0pJj5cLaGSk6pDTa6rJR/5bDiR0=price: 0,89 â‚¬price_expiration: 1442376976currency: EURcost: 0.89expiration: 1471273284login: xxxxxxxxxxxxxxtype: new 
+
+ 
+
+By this time yowsup has created one hidden directory into the /roo/ folder by name .config , which has 1 subfolders named as yowsup and in it there is another folder that resembles to the mobile number you have used for the registration. 
+
+Copy the whole .config folder to nagios home folder and change the ownership. 
+
+cp –rp /root/.config /home/nagios/ 
+
+chown –R nagios:nagios /home/nagios 
+
+Create a yowsup configuration file in the yowsup home directory that is in /urs/local/nagios/libexex/yowsup 
+
+vi yowsup-cli.config 
+
+And paste these parameters in this format. 
+
+cc= 
+
+client_static_keypair= 
+
+edge_routing_info= 
+
+expid= 
+
+fdid= 
+
+id= 
+
+mcc= 
+
+mnc= 
+
+phone= 
+
+server_static_public= 
+
+These parameters can be found In /root/.config/yowsup/9190xxxxxxxx/config.json file. Which you just copied into your nagios home folder. 
+
+Save the file and exit. 
+
+---------------------------------------------------------------------------------------------------------------------------- 
+
+ 
+
+Configuration of Nagios : 
+
+ 
+
+cd /usr/local/nagios/etc/objects 
+
+Open commands.cfg and append this lines at the end of the file 
+
+ 
+
+define command{ 
+
+command_name notify-service-by-whatsapp 
+
+command_line /usr/local/nagios/libexec/yowsup/yowsup-cli demos -c /usr/local/nagios/libexec/yowsup/yowsup-cli.config -s $_CONTACTWHATSAPP$ "** $NOTIFICATIONTYPE$ Service Alert: $HOSTALIAS$/$SERVICEDESC$ is $SERVICESTATE$ ** ***** Nagios ***** Notification Type: $NOTIFICATIONTYPE$ Service: $SERVICEDESC$ Host: $HOSTALIAS$ Address: $HOSTADDRESS$ State: $SERVICESTATE$ Date/Time: $LONGDATETIME$ Additional Info: $SERVICEOUTPUT$" 
+
+} 
+
+define command{ 
+
+command_name notify-host-by-whatsapp 
+
+command_line /usr/local/nagios/libexec/yowsup/yowsup-cli demos --debug -c /usr/local/nagios/libexec/yowsup/yowsup-cli.config -s $_CONTACTWHATSAPP$ "** $NOTIFICATIONTYPE$ Host Alert: $HOSTNAME$ is $HOSTSTATE$ ** ***** Nagios ***** Notification Type: $NOTIFICATIONTYPE$ Host: $HOSTNAME$ State: $HOSTSTATE$ Address: $HOSTADDRESS$ Info: $HOSTOUTPUT$ Date/Time: $LONGDATETIME$" 
+
+} 
+
+*Please don’t miss the curly brackets.* 
+
+Save and quit the file and open contacts.cfg from the same path and edit these parameters. 
+
+ 
+
+define contact{ 
+
+        contact_name                    sysadmin 
+
+        alias                           System Admins 
+
+        use                             generic-contact 
+
+        service_notification_period     24x7                    ; service notifications can be sent anytime 
+
+        host_notification_period        24x7                    ; host notifications can be sent anytime 
+
+        service_notification_options    w,u,c,r,f,s             ; send notifications for all service states, flapping events, and scheduled downtime events 
+
+        host_notification_options       d,u,r,f,s               ; send notifications for all host states, flapping events, and scheduled downtime events 
+
+service_notification_commands   notify-service-by-email; send service notifications via email 
+
+service_notification_commands   notify-service-by-whatsapp ; send service notifications via Yowsup 
+
+host_notification_commands      notify-host-by-email ; send host notifications via email 
+
+host_notification_commands      notify-host-by-whatsapp ; send host notifications via Yowsup 
+
+email                           sysadmin@xyz.com  
+
+host_notification_commands  notify_teams ; for microsoft teams notification 
+
+service_notification_commands       notify_teams ; for microsoft teams notification 
+
+_WEBHOOKURL https://outlook.office.com/webhook/98072e33-bb5a-4919-8646-2d65cc673788@c5a4de429c0e/IncomingWebhook  
+
+_whatsapp 9198xxxxxxxx-1558053241 ; this is for sending notification to whatsapp group. 
+
+_whatsapp 9198xxxxxxxx ; this is for sending notification to individual whatsapp contact. 
+
+ } 
+
+ 
+
+**I am expecting that you have a working knowledge of nagios contacts and groups management and should be able to correct the errors pertaining to nagios groups and contacts that may arise due to misaligned parameters mentioned in the contacts.cfg file.** 
+
+ 
+
+After this start/restart the Nagios service. 
+
+You can check nagios logs to see if the yowsup command Is being invoked. 
+
+ 
+
+Note : Yowsup usase python-axolotl liabraries for end to end encryption and other liabraries like cryptography. 
+
+***If you ever encounter errors like when sending a message on whatsapp group, message is being received by only one or two members and not all members, in that case, delete the axolotl.db file from “/home/nagios/.config/yowsup/9190xxxxxxxx/” and retry. This mostly solves the problem. *** 
+
+---------------------------------------------------------------------------------------------------------------------------- 
+
+In similar way we can also configure nagios to send notification on Microsoft Teams. 
+
+Simply download and install https://github.com/isaac-galvan/nagios-teams-notify.git 
+
+apt install python-certifi python3-certifi python-urllib3 python3-urllib3 python-requests python3-requests python-chardet python3-chardet python-idna python3-idna 
+
+ 
+
+Create the Webhook 
+
+From Using Office 365 Connectors: Teams: 
+
+    In Microsoft Teams, choose More options (⋯) next to the channel name and then choose Connectors. 
+
+    Scroll through the list of Connectors to Incoming Webhook, and choose Add. 
+
+    Enter a name for the webhook, upload an image to associate with data from the webhook, and choose Create. 
+
+    Copy the webhook to the clipboard and save it. You'll need the webhook URL for sending information to Microsoft Teams. 
+
+    Choose Done. 
+
+ 
+
+Configure Nagios : 
+
+Edit the commands.cfg file and append the following command at the end of the file. 
+
+define command { 
+
+    command_name notify_teams 
+
+    command_line /usr/bin/printf "$LONGSERVICEOUTPUT$" | /usr/local/nagios/libexec/notify_teams.py " ** $NOTIFICATIONTYPE$ Host Alert: $HOSTNAME$ is $HOSTSTATE$ ** ***** Nagios ***** Notification Type: $NOTIFICATIONTYPE$ Host: $HOSTNAME$ State: $HOSTSTATE$ Address: $HOSTADDRESS$ Info: $HOSTOUTPUT$ Date/Time: $LONGDATETIME$" "$SERVICEOUTPUT$" $_CONTACTWEBHOOKURL$ 
+
+} 
+
+Also open the contacts.cfg file and edit these parameters. 
+
+define contact{ 
+
+        contact_name                    sysadmin 
+
+        alias                           System Admins 
+
+        use                             generic-contact 
+
+        service_notification_period     24x7                    ; service notifications can be sent anytime 
+
+        host_notification_period        24x7                    ; host notifications can be sent anytime 
+
+        service_notification_options    w,u,c,r,f,s             ; send notifications for all service states, flapping events, and scheduled downtime events 
+
+        host_notification_options       d,u,r,f,s               ; send notifications for all host states, flapping events, and scheduled downtime events 
+
+service_notification_commands   notify-service-by-email; send service notifications via email 
+
+#service_notification_commands   notify-service-by-whatsapp ; send service notifications via Yowsup 
+
+host_notification_commands      notify-host-by-email ; send host notifications via email 
+
+#host_notification_commands      notify-host-by-whatsapp ; send host notifications via Yowsup 
+
+email                           sysadmin@xyz.com  
+
+host_notification_commands  notify_teams ; for microsoft teams notification 
+
+service_notification_commands       notify_teams ; for microsoft teams notification 
+
+_WEBHOOKURL https://outlook.office.com/webhook/98072e33-bb5a-4919-8646-2d65cc673788@c5a4de429c0e/IncomingWebhook  
+
+#_whatsapp 9198xxxxxxxx-1558053241 ; this is for sending notification to whatsapp group. 
+
+#_whatsapp 9198xxxxxxxx ; this is for sending notification to individual whatsapp contact. 
+
+ } 
+
+ 
+
+Now go to team – go to the Channel - general  and select “follow this Chanell” option. 
+
+You should start to get notification on your desktop or mobile teams app now. 
+
+ 
